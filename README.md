@@ -30,20 +30,16 @@ The original chatbot answers questions from a static FAISS vector index built on
 ## 🗂 Project Structure
 
 ```
-customer_service_chatbot_LLM/
+customer-service-chatbot-dynamic-kb/
 ├── dataset/
-│   └── dataset.csv               ← original FAQ dataset
-├── new_knowledge/                ← drop new files here
-│   ├── announcements.txt
-│   └── extra_qa.json
+│   └── dataset.csv               ← original FAQ dataset (Nullclass)
 ├── faiss_index/                  ← auto-created FAISS index
 ├── kb_update_history.db          ← SQLite run log (auto-created)
 ├── sources_config.json           ← source registry (auto-created)
-├── kb_updater.py                 ← ★ NEW: dynamic updater module
-├── langchain_helper.py           ← updated (allow_dangerous_deserialization)
-├── main.py                       ← updated Streamlit UI
+├── app.py                        ← ★ single all-in-one file (LLM + updater + UI)
 ├── requirements.txt
-└── .env
+├── .env.example                  ← rename to .env and add your key
+└── .gitignore
 ```
 
 ---
@@ -51,12 +47,12 @@ customer_service_chatbot_LLM/
 ## 🔧 Installation
 
 ```bash
-git clone https://github.com/<your-repo>/customer_service_chatbot_LLM.git
-cd customer_service_chatbot_LLM
+git clone https://github.com/aravindsunilkumar2003-ops/customer-service-chatbot-dynamic-kb.git
+cd customer-service-chatbot-dynamic-kb
 pip install -r requirements.txt
 ```
 
-Create a `.env` file:
+Rename `.env.example` to `.env` and add your key:
 ```
 GOOGLE_API_KEY="your_google_palm_api_key"
 ```
@@ -67,7 +63,7 @@ GOOGLE_API_KEY="your_google_palm_api_key"
 
 ### 1 · Run the Streamlit app
 ```bash
-streamlit run main.py
+streamlit run app.py
 ```
 
 ### 2 · First-time setup
@@ -81,13 +77,13 @@ Click **"🔨 Build from scratch"** in the sidebar to index the base CSV.
 ### 4 · Enable the scheduler
 Select an interval and click **"▶ Start Scheduler"**. The background thread calls `run_update_cycle()` automatically.
 
-### 5 · CLI usage
+### 5 · CLI usage (without UI)
 ```bash
 # one-shot update
-python kb_updater.py
+python app.py --update
 
 # update + start hourly background scheduler
-python kb_updater.py --schedule 3600
+python app.py --schedule 3600
 ```
 
 ---
@@ -127,17 +123,61 @@ faiss_index/   (saved to disk)
 
 ## 📊 Results / Metrics
 
-The **Update History** tab in the Streamlit app shows:
-- Total update runs
-- Success rate
-- Total chunks added over time (line chart)
-- Per-run duration and chunk count
+The **Update History** tab in the Streamlit app tracks every update run and displays:
+
+- ✅ Total update runs and success rate
+- 📈 Chunks added over time (line chart)
+- ⏱ Per-run duration
+- 🗂 Source breakdown per run
+
+### System Architecture Diagram
+
+```
+┌─────────────────────────────────────────────────────┐
+│                   Knowledge Sources                  │
+│   CSV │ JSON │ Plain Text │ URL (scrape) │ Inline    │
+└───────────────────────┬─────────────────────────────┘
+                        │
+                        ▼
+          ┌─────────────────────────┐
+          │   RecursiveTextSplitter  │  chunk_size=500
+          └─────────────┬───────────┘
+                        │
+                        ▼
+          ┌─────────────────────────┐
+          │  SHA-256 Deduplicator   │◄──── SQLite History DB
+          │  (skip seen chunks)     │
+          └─────────────┬───────────┘
+                        │ new chunks only
+                        ▼
+          ┌─────────────────────────┐
+          │  HuggingFace Embeddings │  hkunlp/instructor-large
+          └─────────────┬───────────┘
+                        │
+                        ▼
+          ┌─────────────────────────┐
+          │   FAISS.merge_from()    │  incremental, no rebuild
+          │   faiss_index/          │
+          └─────────────┬───────────┘
+                        │
+                        ▼
+          ┌─────────────────────────┐
+          │   RetrievalQA Chain     │  Google PaLM LLM
+          │   (RAG)                 │
+          └─────────────────────────┘
+```
+
+### Dataset
+
+- **Source:** Nullclass FAQ dataset (`dataset/dataset.csv`)
+- **Format:** prompt/response pairs
+- **Size:** ~200+ FAQ entries covering courses, internships, payments, tools
 
 ---
 
 ## 📦 Adding New Source Types (extensibility)
 
-Extend `SourceLoader` in `kb_updater.py`:
+Extend `SourceLoader` in `app.py`:
 
 ```python
 @classmethod
