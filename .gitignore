@@ -1,0 +1,9 @@
+.env
+faiss_index/
+kb_update_history.db
+kb_updater.log
+__pycache__/
+*.pyc
+*.pyo
+new_knowledge/
+sources_config.json
